@@ -1,3 +1,5 @@
+[Download MultiPaste for Mac](https://github.com/ishaan0x/MultiPaste/releases/latest/download/MultiPaste.zip)
+
 # MultiPaste
 
 MultiPaste is a lightweight macOS menu bar app for ten independent clipboard slots.
@@ -25,7 +27,7 @@ On first launch, macOS should prompt you to allow access for the built binary or
 
 ### Download the app
 
-Download `MultiPaste.zip` from the latest [GitHub release](https://github.com/ishaan0x/MultiPaste/releases).
+Download [MultiPaste.zip](https://github.com/ishaan0x/MultiPaste/releases/latest/download/MultiPaste.zip).
 
 ### First launch
 
