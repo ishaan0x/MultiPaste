@@ -4,7 +4,7 @@ This is a lightweight macOS prototype for ten independent clipboard slots.
 
 ## Hotkeys
 
-- `Control` + `Option` + `1` through `0`: copy current selection into slot `1` through `10`
+- `Control` + `1` through `0`: copy current selection into slot `1` through `10`
 - `Control` + `Shift` + `1` through `0`: paste from slot `1` through `10`
 
 `0` maps to slot `10`.

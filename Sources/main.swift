@@ -180,7 +180,7 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             registerHotKey(
                 identifier: copyBaseIdentifier + UInt32(index),
                 keyCode: keyCode(for: index),
-                modifiers: UInt32(controlKey | optionKey)
+                modifiers: UInt32(controlKey)
             )
 
             registerHotKey(
