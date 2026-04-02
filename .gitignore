@@ -1,0 +1,6 @@
+.build/
+.build-scratch/
+*.swp
+*.tmp
+*.out
+*.err
