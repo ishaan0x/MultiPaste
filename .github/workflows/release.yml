@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the leading v
+        required: true
+        default: 0.1.0
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Normalize release version
+        id: version
+        run: |
+          VERSION="${VERSION#v}"
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+        env:
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
+      - name: Package app
+        run: ./scripts/package_app.sh "${{ steps.version.outputs.value }}"
+
+      - name: Create GitHub release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.version.outputs.value }}" \
+            dist/MultiPaste.zip \
+            --title "v${{ steps.version.outputs.value }}" \
+            --notes "Unsigned MultiPaste app bundle. macOS will show a warning on first open."
+
+      - name: Upload asset to existing release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" dist/MultiPaste.zip --clobber
