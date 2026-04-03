@@ -8,6 +8,14 @@ MultiPaste is a lightweight macOS menu bar app for ten independent clipboard slo
 
 - `Control` + `1` through `0`: copy current selection into slot `1` through `10`
 - `Control` + `Shift` + `1` through `0`: paste from slot `1` through `10`
+- `Control` + `Space`: open the casing picker
+
+Inside the casing picker:
+
+- `Up` / `Down`: move between options
+- `Return`: apply the highlighted option
+- `N`, `L`, `U`, `T`, `S`: jump directly to `Normal`, `Lowercase`, `Uppercase`, `Title Case`, or `SpongeBob`
+- `Escape`: cancel
 
 `0` maps to slot `10`.
 
@@ -16,6 +24,8 @@ MultiPaste is a lightweight macOS menu bar app for ten independent clipboard slo
 When you trigger a copy hotkey, the app simulates `Command-C`, waits briefly for the target app to update the system clipboard, then stores the clipboard contents in the selected slot.
 
 When you trigger a paste hotkey, the app restores that slot to the system clipboard and simulates `Command-V`.
+
+When you trigger the casing picker, the app copies the current selection, lets you choose a casing transform from a small popup, then pastes the transformed text back, reselects that transformed text, and restores your previous clipboard contents. `Normal` uses sentence-case heuristics, and SpongeBob casing uses a deterministic seeded pattern with about 42% uppercase letters on average.
 
 ## Permissions
 
@@ -52,7 +62,7 @@ To build and run the local development version:
 To build an unsigned `.app` bundle and zip it for a GitHub release:
 
 ```bash
-./scripts/package_app.sh 0.1.0
+./scripts/package_app.sh 0.2.0
 ```
 
 This creates:
@@ -64,7 +74,7 @@ This creates:
 
 This repo includes a GitHub Actions workflow at `.github/workflows/release.yml`.
 
-- Push a tag like `v0.1.0` to upload `MultiPaste.zip` to that release.
+- Push a tag like `v0.2.0` to upload `MultiPaste.zip` to that release.
 - Or run the workflow manually from the Actions tab and enter a version.
 
 The app is unsigned and not notarized, so macOS will show a warning on first open. That is expected for this distribution model.

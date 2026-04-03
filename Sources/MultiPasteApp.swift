@@ -1,11 +1,7 @@
 import AppKit
+import Foundation
 @preconcurrency import ApplicationServices
 @preconcurrency import Carbon
-
-private enum SlotAction: UInt32 {
-    case copy = 1
-    case paste = 2
-}
 
 private struct ClipboardSnapshotItem {
     let dataByType: [String: Data]
@@ -77,11 +73,18 @@ private final class HotKeyRegistration {
     }
 }
 
+private struct TextSelectionContext {
+    let element: AXUIElement
+    let range: CFRange
+    let application: NSRunningApplication?
+}
+
 @MainActor
 private final class MultiPasteController: NSObject, NSApplicationDelegate {
     private let slotCount = 10
     private let copyBaseIdentifier: UInt32 = 1_000
     private let pasteBaseIdentifier: UInt32 = 2_000
+    private let transformMenuIdentifier: UInt32 = 3_000
     private let signature: OSType = 0x4D505354
 
     private var slots: [ClipboardSnapshot?] = Array(repeating: nil, count: 10)
@@ -90,6 +93,7 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
     private var eventHandlerRef: EventHandlerRef?
     private var enabled = true
     private var resetStatusItemTask: DispatchWorkItem?
+    private var activePicker: TransformPickerController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -120,6 +124,21 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             let title = "Slot \(displaySlotNumber(for: index)): Empty"
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             item.tag = 10 + index
+            menu.addItem(item)
+        }
+
+        menu.addItem(NSMenuItem.separator())
+        let transformHeader = NSMenuItem(title: "Text Transforms", action: nil, keyEquivalent: "")
+        transformHeader.isEnabled = false
+        menu.addItem(transformHeader)
+
+        let transformItem = NSMenuItem(title: "Picker: Ctrl+Space", action: nil, keyEquivalent: "")
+        transformItem.tag = 100
+        menu.addItem(transformItem)
+
+        for (offset, transform) in TextTransform.allCases.enumerated() {
+            let item = NSMenuItem(title: "  \(transform.menuTitle): \(transform.pickerShortcut.uppercased())", action: nil, keyEquivalent: "")
+            item.tag = 110 + offset
             menu.addItem(item)
         }
 
@@ -189,6 +208,12 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
                 modifiers: UInt32(controlKey | shiftKey)
             )
         }
+
+        registerHotKey(
+            identifier: transformMenuIdentifier,
+            keyCode: UInt32(kVK_Space),
+            modifiers: UInt32(controlKey)
+        )
     }
 
     private func registerHotKey(identifier: UInt32, keyCode: UInt32, modifiers: UInt32) {
@@ -249,6 +274,8 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         case pasteBaseIdentifier..<(pasteBaseIdentifier + UInt32(slotCount)):
             let slotIndex = Int(identifier - pasteBaseIdentifier)
             paste(from: slotIndex)
+        case transformMenuIdentifier:
+            presentTransformPicker()
         default:
             break
         }
@@ -292,22 +319,214 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         flashStatusTitle("P\(displaySlotNumber(for: slotIndex))")
     }
 
+    private func presentTransformPicker() {
+        guard ensureAccessibilityPermissions() else {
+            flashStatusTitle("Grant Access")
+            return
+        }
+
+        guard activePicker == nil else {
+            return
+        }
+
+        let selectionContext = captureSelectionContext()
+        let previousClipboard = ClipboardSnapshot.capture()
+        postCommandKeystroke(keyCode: CGKeyCode(kVK_ANSI_C))
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+            guard let self else { return }
+
+            guard let selectedText = NSPasteboard.general.string(forType: .string), !selectedText.isEmpty else {
+                self.restoreClipboard(previousClipboard)
+                self.flashStatusTitle("No text")
+                return
+            }
+
+            self.showTransformPicker(
+                selectedText: selectedText,
+                selectionContext: selectionContext,
+                previousClipboard: previousClipboard
+            )
+        }
+    }
+
+    private func showTransformPicker(
+        selectedText: String,
+        selectionContext: TextSelectionContext?,
+        previousClipboard: ClipboardSnapshot?
+    ) {
+        let picker = TransformPickerController(anchorPoint: NSEvent.mouseLocation)
+        activePicker = picker
+
+        picker.onChoose = { [weak self] transform in
+            guard let self else { return }
+            self.activePicker = nil
+            self.applyTransform(
+                transform,
+                to: selectedText,
+                selectionContext: selectionContext,
+                previousClipboard: previousClipboard
+            )
+        }
+
+        picker.onCancel = { [weak self] in
+            guard let self else { return }
+            self.activePicker = nil
+            self.restoreClipboard(previousClipboard)
+            selectionContext?.application?.activate(options: [.activateIgnoringOtherApps])
+        }
+
+        picker.show()
+    }
+
+    private func applyTransform(
+        _ transform: TextTransform,
+        to selectedText: String,
+        selectionContext: TextSelectionContext?,
+        previousClipboard: ClipboardSnapshot?
+    ) {
+        let transformedText = transform.apply(to: selectedText)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(transformedText, forType: .string)
+
+        selectionContext?.application?.activate(options: [.activateIgnoringOtherApps])
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            guard let self else { return }
+
+            self.postCommandKeystroke(keyCode: CGKeyCode(kVK_ANSI_V))
+            self.flashStatusTitle(transform.statusMessage)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                let restoredSelection = selectionContext.map {
+                    self.restoreSelection($0, newText: transformedText)
+                } ?? false
+
+                if !restoredSelection {
+                    self.selectInsertedTextFallback(length: transformedText.count)
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    self.restoreClipboard(previousClipboard)
+                }
+            }
+        }
+    }
+
     private func ensureAccessibilityPermissions() -> Bool {
         AXIsProcessTrusted()
     }
 
-    private func postCommandKeystroke(keyCode: CGKeyCode) {
+    private func captureSelectionContext() -> TextSelectionContext? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedValue: CFTypeRef?
+        let focusedStatus = AXUIElementCopyAttributeValue(
+            systemWide,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedValue
+        )
+
+        guard focusedStatus == .success, let focusedElement = focusedValue else {
+            return nil
+        }
+
+        let element = focusedElement as! AXUIElement
+        var selectedRangeValue: CFTypeRef?
+        let selectedRangeStatus = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &selectedRangeValue
+        )
+
+        guard selectedRangeStatus == .success, let selectedRangeValue else {
+            return nil
+        }
+
+        let axValue = selectedRangeValue as! AXValue
+        var range = CFRange()
+        guard AXValueGetValue(axValue, .cfRange, &range) else {
+            return nil
+        }
+
+        return TextSelectionContext(
+            element: element,
+            range: range,
+            application: NSWorkspace.shared.frontmostApplication
+        )
+    }
+
+    private func restoreSelection(_ context: TextSelectionContext, newText: String) -> Bool {
+        var range = CFRange(location: context.range.location, length: newText.utf16.count)
+        guard let value = AXValueCreate(.cfRange, &range) else {
+            return false
+        }
+
+        let status = AXUIElementSetAttributeValue(
+            context.element,
+            kAXSelectedTextRangeAttribute as CFString,
+            value
+        )
+
+        guard status == .success else {
+            return false
+        }
+
+        var selectedRangeValue: CFTypeRef?
+        let readStatus = AXUIElementCopyAttributeValue(
+            context.element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &selectedRangeValue
+        )
+
+        guard readStatus == .success, let selectedRangeValue else {
+            return false
+        }
+
+        let axValue = selectedRangeValue as! AXValue
+        var restoredRange = CFRange()
+        guard AXValueGetValue(axValue, .cfRange, &restoredRange) else {
+            return false
+        }
+
+        return restoredRange.location == range.location && restoredRange.length == range.length
+    }
+
+    private func restoreClipboard(_ snapshot: ClipboardSnapshot?) {
+        guard let snapshot else {
+            NSPasteboard.general.clearContents()
+            return
+        }
+
+        snapshot.restore()
+    }
+
+    private func selectInsertedTextFallback(length: Int) {
+        guard length > 0 else {
+            return
+        }
+
+        for _ in 0..<length {
+            postKeystroke(keyCode: CGKeyCode(kVK_LeftArrow), flags: .maskShift)
+        }
+    }
+
+    private func postKeystroke(keyCode: CGKeyCode, flags: CGEventFlags = []) {
         guard let source = CGEventSource(stateID: .combinedSessionState) else {
             return
         }
 
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
-        keyDown?.flags = .maskCommand
+        keyDown?.flags = flags
         keyDown?.post(tap: .cghidEventTap)
 
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
-        keyUp?.flags = .maskCommand
+        keyUp?.flags = flags
         keyUp?.post(tap: .cghidEventTap)
+    }
+
+    private func postCommandKeystroke(keyCode: CGKeyCode) {
+        postKeystroke(keyCode: keyCode, flags: .maskCommand)
     }
 
     private func updateStatusTitle(_ title: String) {

@@ -1,6 +1,7 @@
 .build/
 .build-scratch/
 dist/
+.DS_Store
 *.swp
 *.tmp
 *.out
