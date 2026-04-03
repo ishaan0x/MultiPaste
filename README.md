@@ -4,6 +4,8 @@
 
 MultiPaste is a lightweight macOS menu bar app for ten independent clipboard slots.
 
+![MultiPaste overview](assets/multipaste-hero.svg)
+
 ## Hotkeys
 
 - `Control` + `1` through `0`: copy current selection into slot `1` through `10`

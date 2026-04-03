@@ -1,0 +1,89 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" rx="32" fill="#F3EFE7"/>
+  <rect x="42" y="42" width="1116" height="546" rx="28" fill="url(#bg)"/>
+
+  <circle cx="145" cy="118" r="12" fill="#F26B5B"/>
+  <circle cx="181" cy="118" r="12" fill="#F2B84B"/>
+  <circle cx="217" cy="118" r="12" fill="#60C26E"/>
+
+  <text x="86" y="198" fill="#0F172A" font-family="SF Pro Display, Helvetica, Arial, sans-serif" font-size="68" font-weight="700">
+    MultiPaste
+  </text>
+  <text x="86" y="248" fill="#334155" font-family="SF Pro Text, Helvetica, Arial, sans-serif" font-size="28" font-weight="500">
+    Ten clipboard slots and one fast text-case picker for macOS
+  </text>
+
+  <rect x="86" y="298" width="360" height="214" rx="24" fill="#FFFFFF" fill-opacity="0.8"/>
+  <text x="118" y="346" fill="#0F172A" font-family="SF Pro Text, Helvetica, Arial, sans-serif" font-size="24" font-weight="700">
+    Clipboard Slots
+  </text>
+
+  <g font-family="SF Mono, Menlo, monospace" font-size="23" font-weight="700">
+    <rect x="118" y="374" width="124" height="46" rx="14" fill="#0F172A"/>
+    <text x="149" y="404" fill="#F8FAFC">Ctrl 1</text>
+
+    <rect x="258" y="374" width="156" height="46" rx="14" fill="#1D4ED8"/>
+    <text x="287" y="404" fill="#EFF6FF">Ctrl Shift 1</text>
+
+    <rect x="118" y="436" width="54" height="36" rx="12" fill="#E2E8F0"/>
+    <text x="136" y="460" fill="#0F172A">1</text>
+    <rect x="180" y="436" width="54" height="36" rx="12" fill="#E2E8F0"/>
+    <text x="198" y="460" fill="#0F172A">2</text>
+    <rect x="242" y="436" width="54" height="36" rx="12" fill="#E2E8F0"/>
+    <text x="260" y="460" fill="#0F172A">3</text>
+    <rect x="304" y="436" width="54" height="36" rx="12" fill="#E2E8F0"/>
+    <text x="322" y="460" fill="#0F172A">4</text>
+    <rect x="366" y="436" width="54" height="36" rx="12" fill="#E2E8F0"/>
+    <text x="384" y="460" fill="#0F172A">5</text>
+
+    <rect x="118" y="482" width="302" height="1" fill="#CBD5E1"/>
+  </g>
+  <text x="118" y="504" fill="#475569" font-family="SF Pro Text, Helvetica, Arial, sans-serif" font-size="21">
+    Store multiple copied values without losing your place.
+  </text>
+
+  <rect x="500" y="178" width="612" height="334" rx="28" fill="#0F172A"/>
+  <rect x="532" y="214" width="548" height="66" rx="20" fill="#111827"/>
+  <text x="562" y="256" fill="#E2E8F0" font-family="SF Mono, Menlo, monospace" font-size="26" font-weight="700">
+    Ctrl Space
+  </text>
+  <text x="716" y="256" fill="#94A3B8" font-family="SF Pro Text, Helvetica, Arial, sans-serif" font-size="24">
+    Open case picker
+  </text>
+
+  <rect x="548" y="310" width="516" height="56" rx="18" fill="#E2E8F0"/>
+  <text x="580" y="346" fill="#0F172A" font-family="SF Pro Text, Helvetica, Arial, sans-serif" font-size="25" font-weight="700">
+    Normal
+  </text>
+  <text x="982" y="346" fill="#475569" font-family="SF Mono, Menlo, monospace" font-size="22" font-weight="700">
+    N
+  </text>
+
+  <rect x="548" y="378" width="516" height="46" rx="16" fill="#172554"/>
+  <text x="580" y="408" fill="#DBEAFE" font-family="SF Pro Text, Helvetica, Arial, sans-serif" font-size="23" font-weight="600">
+    Lowercase
+  </text>
+  <text x="982" y="408" fill="#93C5FD" font-family="SF Mono, Menlo, monospace" font-size="20" font-weight="700">
+    L
+  </text>
+
+  <rect x="548" y="434" width="516" height="46" rx="16" fill="#1E293B"/>
+  <text x="580" y="464" fill="#E2E8F0" font-family="SF Pro Text, Helvetica, Arial, sans-serif" font-size="23" font-weight="600">
+    UPPERCASE / Title / SpongeBob
+  </text>
+  <text x="950" y="464" fill="#94A3B8" font-family="SF Mono, Menlo, monospace" font-size="20" font-weight="700">
+    U  T  S
+  </text>
+
+  <text x="548" y="536" fill="#CBD5E1" font-family="SF Pro Text, Helvetica, Arial, sans-serif" font-size="22">
+    Deterministic transforms. No AI calls. Just quick local edits.
+  </text>
+
+  <defs>
+    <linearGradient id="bg" x1="42" y1="42" x2="1158" y2="588" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF8ED"/>
+      <stop offset="0.48" stop-color="#FDF2F8"/>
+      <stop offset="1" stop-color="#EEF2FF"/>
+    </linearGradient>
+  </defs>
+</svg>
