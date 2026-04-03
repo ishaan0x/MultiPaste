@@ -59,6 +59,12 @@ private final class ClipboardSnapshot {
     }
 }
 
+private struct SlotEntry {
+    let snapshot: ClipboardSnapshot
+    let preview: String
+    let updatedAt: Date
+}
+
 private final class HotKeyRegistration {
     let identifier: UInt32
     let ref: EventHotKeyRef
@@ -73,6 +79,12 @@ private final class HotKeyRegistration {
     }
 }
 
+private struct HotKeyDefinition {
+    let identifier: UInt32
+    let keyCode: UInt32
+    let modifiers: UInt32
+}
+
 private struct TextSelectionContext {
     let element: AXUIElement
     let range: CFRange
@@ -85,20 +97,26 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
     private let copyBaseIdentifier: UInt32 = 1_000
     private let pasteBaseIdentifier: UInt32 = 2_000
     private let transformMenuIdentifier: UInt32 = 3_000
+    private let overlayNextIdentifier: UInt32 = 3_100
+    private let overlayPreviousIdentifier: UInt32 = 3_101
     private let signature: OSType = 0x4D505354
 
-    private var slots: [ClipboardSnapshot?] = Array(repeating: nil, count: 10)
+    private var slots: [SlotEntry?] = Array(repeating: nil, count: 10)
     private var registrations: [HotKeyRegistration] = []
     private var statusItem: NSStatusItem?
     private var eventHandlerRef: EventHandlerRef?
     private var enabled = true
     private var resetStatusItemTask: DispatchWorkItem?
     private var activePicker: TransformPickerController?
+    private var activeSlotOverlay: SlotOverlayController?
+    private var flagsMonitor: Any?
+    private var registeredHotKeyIdentifiers = Set<UInt32>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         configureStatusItem()
         installHotKeyHandler()
+        installModifierMonitor()
         registerHotKeys()
         promptForAccessibilityIfNeeded()
         updateStatusTitle("MP")
@@ -107,6 +125,10 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
+        }
+
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
         }
     }
 
@@ -194,34 +216,68 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         )
     }
 
+    private func installModifierMonitor() {
+        flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            DispatchQueue.main.async {
+                self?.handleModifierFlags(event.modifierFlags)
+            }
+        }
+    }
+
     private func registerHotKeys() {
         for index in 0..<slotCount {
             registerHotKey(
-                identifier: copyBaseIdentifier + UInt32(index),
-                keyCode: keyCode(for: index),
-                modifiers: UInt32(controlKey)
+                definition: HotKeyDefinition(
+                    identifier: copyBaseIdentifier + UInt32(index),
+                    keyCode: keyCode(for: index),
+                    modifiers: UInt32(controlKey)
+                )
             )
 
             registerHotKey(
-                identifier: pasteBaseIdentifier + UInt32(index),
-                keyCode: keyCode(for: index),
-                modifiers: UInt32(controlKey | shiftKey)
+                definition: HotKeyDefinition(
+                    identifier: pasteBaseIdentifier + UInt32(index),
+                    keyCode: keyCode(for: index),
+                    modifiers: UInt32(controlKey | shiftKey)
+                )
             )
         }
 
         registerHotKey(
-            identifier: transformMenuIdentifier,
-            keyCode: UInt32(kVK_Space),
-            modifiers: UInt32(controlKey)
+            definition: HotKeyDefinition(
+                identifier: transformMenuIdentifier,
+                keyCode: UInt32(kVK_Space),
+                modifiers: UInt32(controlKey)
+            )
+        )
+
+        registerHotKey(
+            definition: HotKeyDefinition(
+                identifier: overlayNextIdentifier,
+                keyCode: UInt32(kVK_DownArrow),
+                modifiers: UInt32(controlKey | shiftKey)
+            )
+        )
+
+        registerHotKey(
+            definition: HotKeyDefinition(
+                identifier: overlayPreviousIdentifier,
+                keyCode: UInt32(kVK_UpArrow),
+                modifiers: UInt32(controlKey | shiftKey)
+            )
         )
     }
 
-    private func registerHotKey(identifier: UInt32, keyCode: UInt32, modifiers: UInt32) {
-        let hotKeyID = EventHotKeyID(signature: signature, id: identifier)
+    private func registerHotKey(definition: HotKeyDefinition, attempt: Int = 0) {
+        guard !registeredHotKeyIdentifiers.contains(definition.identifier) else {
+            return
+        }
+
+        let hotKeyID = EventHotKeyID(signature: signature, id: definition.identifier)
         var hotKeyRef: EventHotKeyRef?
         let status = RegisterEventHotKey(
-            keyCode,
-            modifiers,
+            definition.keyCode,
+            definition.modifiers,
             hotKeyID,
             GetApplicationEventTarget(),
             0,
@@ -229,11 +285,18 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         )
 
         guard status == noErr, let hotKeyRef else {
-            NSLog("Failed to register hotkey \(identifier): \(status)")
+            if attempt < 8 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                    self?.registerHotKey(definition: definition, attempt: attempt + 1)
+                }
+            } else {
+                NSLog("Failed to register hotkey \(definition.identifier) after retries: \(status)")
+            }
             return
         }
 
-        registrations.append(HotKeyRegistration(identifier: identifier, ref: hotKeyRef))
+        registeredHotKeyIdentifiers.insert(definition.identifier)
+        registrations.append(HotKeyRegistration(identifier: definition.identifier, ref: hotKeyRef))
     }
 
     private func keyCode(for index: Int) -> UInt32 {
@@ -276,6 +339,10 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             paste(from: slotIndex)
         case transformMenuIdentifier:
             presentTransformPicker()
+        case overlayNextIdentifier:
+            selectNextOverlaySlot()
+        case overlayPreviousIdentifier:
+            selectPreviousOverlaySlot()
         default:
             break
         }
@@ -297,8 +364,13 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
                 return
             }
 
-            self.slots[slotIndex] = snapshot
+            self.slots[slotIndex] = SlotEntry(
+                snapshot: snapshot,
+                preview: self.previewText(for: snapshot),
+                updatedAt: Date()
+            )
             self.refreshSlotTitles()
+            self.refreshSlotOverlayIfNeeded()
             self.flashStatusTitle("C\(self.displaySlotNumber(for: slotIndex))")
         }
     }
@@ -309,12 +381,13 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             return
         }
 
-        guard let snapshot = slots[slotIndex] else {
+        guard let slot = slots[slotIndex] else {
             flashStatusTitle("Empty \(displaySlotNumber(for: slotIndex))")
             return
         }
 
-        snapshot.restore()
+        slot.snapshot.restore()
+        hideSlotOverlay()
         postCommandKeystroke(keyCode: CGKeyCode(kVK_ANSI_V))
         flashStatusTitle("P\(displaySlotNumber(for: slotIndex))")
     }
@@ -325,7 +398,8 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             return
         }
 
-        guard activePicker == nil else {
+        if let activePicker {
+            activePicker.cancelPicker()
             return
         }
 
@@ -399,16 +473,22 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             self.flashStatusTitle(transform.statusMessage)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                let restoredSelection = selectionContext.map {
+                var restoredSelection = selectionContext.map {
                     self.restoreSelection($0, newText: transformedText)
                 } ?? false
 
-                if !restoredSelection {
-                    self.selectInsertedTextFallback(length: transformedText.count)
-                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+                    if let selectionContext {
+                        restoredSelection = self.currentSelectionMatches(selectionContext, newText: transformedText)
+                    }
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                    self.restoreClipboard(previousClipboard)
+                    if !restoredSelection {
+                        self.selectInsertedTextFallback(length: transformedText.utf16.count)
+                    }
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        self.restoreClipboard(previousClipboard)
+                    }
                 }
             }
         }
@@ -492,6 +572,27 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         return restoredRange.location == range.location && restoredRange.length == range.length
     }
 
+    private func currentSelectionMatches(_ context: TextSelectionContext, newText: String) -> Bool {
+        var selectedRangeValue: CFTypeRef?
+        let readStatus = AXUIElementCopyAttributeValue(
+            context.element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &selectedRangeValue
+        )
+
+        guard readStatus == .success, let selectedRangeValue else {
+            return false
+        }
+
+        let axValue = selectedRangeValue as! AXValue
+        var restoredRange = CFRange()
+        guard AXValueGetValue(axValue, .cfRange, &restoredRange) else {
+            return false
+        }
+
+        return restoredRange.location == context.range.location && restoredRange.length == newText.utf16.count
+    }
+
     private func restoreClipboard(_ snapshot: ClipboardSnapshot?) {
         guard let snapshot else {
             NSPasteboard.general.clearContents()
@@ -499,6 +600,134 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         }
 
         snapshot.restore()
+    }
+
+    private func previewText(for snapshot: ClipboardSnapshot) -> String {
+        let stringType = NSPasteboard.PasteboardType.string.rawValue
+        let rtfType = NSPasteboard.PasteboardType.rtf.rawValue
+        let fileURLType = NSPasteboard.PasteboardType.fileURL.rawValue
+        let tiffType = NSPasteboard.PasteboardType.tiff.rawValue
+        let pngType = NSPasteboard.PasteboardType.png.rawValue
+
+        for item in snapshot.items {
+            if let data = item.dataByType[stringType], let text = String(data: data, encoding: .utf8) {
+                return compactPreview(text)
+            }
+
+            if let data = item.dataByType[rtfType],
+               let attributed = try? NSAttributedString(
+                    data: data,
+                    options: [.documentType: NSAttributedString.DocumentType.rtf],
+                    documentAttributes: nil
+               ) {
+                return compactPreview(attributed.string)
+            }
+
+            if item.dataByType[fileURLType] != nil {
+                return "[Files]"
+            }
+
+            if item.dataByType[tiffType] != nil || item.dataByType[pngType] != nil {
+                return "[Image]"
+            }
+        }
+
+        return "[Clipboard Item]"
+    }
+
+    private func compactPreview(_ text: String) -> String {
+        let collapsed = text
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+
+        guard !collapsed.isEmpty else {
+            return "[Empty Text]"
+        }
+
+        return String(collapsed.prefix(180))
+    }
+
+    private func installSlotOverlayIfNeeded() {
+        guard activeSlotOverlay == nil else {
+            return
+        }
+
+        let items = slots.enumerated().compactMap { index, slot -> SlotOverlayItem? in
+            guard let slot else {
+                return nil
+            }
+
+            return SlotOverlayItem(slotIndex: index, preview: slot.preview, updatedAt: slot.updatedAt)
+        }
+
+        guard !items.isEmpty else {
+            return
+        }
+
+        let overlay = SlotOverlayController(items: items, anchorPoint: NSEvent.mouseLocation)
+        activeSlotOverlay = overlay
+        overlay.show()
+    }
+
+    private func refreshSlotOverlayIfNeeded() {
+        guard activeSlotOverlay != nil else {
+            return
+        }
+
+        hideSlotOverlay()
+        installSlotOverlayIfNeeded()
+    }
+
+    private func hideSlotOverlay() {
+        activeSlotOverlay?.closeOverlay()
+        activeSlotOverlay = nil
+    }
+
+    private func handleModifierFlags(_ flags: NSEvent.ModifierFlags) {
+        let normalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
+        let shouldShowOverlay =
+            normalizedFlags.contains(.control) &&
+            normalizedFlags.contains(.shift) &&
+            !normalizedFlags.contains(.command) &&
+            !normalizedFlags.contains(.option)
+
+        if shouldShowOverlay {
+            installSlotOverlayIfNeeded()
+        } else {
+            pasteSelectedOverlaySlotIfNeeded()
+        }
+    }
+
+    private func selectNextOverlaySlot() {
+        guard enabled else {
+            return
+        }
+
+        installSlotOverlayIfNeeded()
+        activeSlotOverlay?.selectNext()
+    }
+
+    private func selectPreviousOverlaySlot() {
+        guard enabled else {
+            return
+        }
+
+        installSlotOverlayIfNeeded()
+        activeSlotOverlay?.selectPrevious()
+    }
+
+    private func pasteSelectedOverlaySlotIfNeeded() {
+        guard let activeSlotOverlay else {
+            return
+        }
+
+        guard let selectedSlotIndex = activeSlotOverlay.selectedSlotIndex else {
+            hideSlotOverlay()
+            return
+        }
+
+        paste(from: selectedSlotIndex)
     }
 
     private func selectInsertedTextFallback(length: Int) {
@@ -555,8 +784,11 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
                 continue
             }
 
-            let state = slots[index] == nil ? "Empty" : "Stored"
-            item.title = "Slot \(displaySlotNumber(for: index)): \(state)"
+            if let slot = slots[index] {
+                item.title = "Slot \(displaySlotNumber(for: index)): \(slot.preview)"
+            } else {
+                item.title = "Slot \(displaySlotNumber(for: index)): Empty"
+            }
         }
     }
 
@@ -569,6 +801,7 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
     @objc private func clearAllSlots() {
         slots = Array(repeating: nil, count: slotCount)
         refreshSlotTitles()
+        hideSlotOverlay()
         flashStatusTitle("Cleared")
     }
 

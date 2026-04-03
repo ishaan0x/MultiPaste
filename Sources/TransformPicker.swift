@@ -73,6 +73,10 @@ final class TransformPickerController: NSWindowController {
         close()
     }
 
+    func cancelPicker() {
+        cancel()
+    }
+
     private func setupUI(width: CGFloat, height: CGFloat, padding: CGFloat) {
         guard let panel = window else {
             return

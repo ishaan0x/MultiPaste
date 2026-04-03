@@ -12,10 +12,12 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 EXECUTABLE_PATH="$BUILD_ROOT/release/$APP_NAME"
 VERSION="${1:-0.1.0}"
+SIGNING_KEYCHAIN="$HOME/Library/Keychains/MultiPaste.keychain-db"
+SIGNING_IDENTITY="MultiPaste Local Signer"
 
 mkdir -p "$MODULE_CACHE" "$BUILD_ROOT" "$DIST_DIR"
 
-SDKROOT="$(xcrun --show-sdk-path)"
+SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path)}"
 
 env \
   SDKROOT="$SDKROOT" \
@@ -60,8 +62,20 @@ cat > "$CONTENTS_DIR/Info.plist" <<EOF
 </plist>
 EOF
 
-rm -f "$DIST_DIR/$APP_NAME.zip"
 xattr -cr "$APP_DIR"
+
+if security find-certificate -c "$SIGNING_IDENTITY" "$SIGNING_KEYCHAIN" >/dev/null 2>&1; then
+  security unlock-keychain -p "multipaste-local-signing" "$SIGNING_KEYCHAIN"
+  codesign \
+    --force \
+    --deep \
+    --sign "$SIGNING_IDENTITY" \
+    --keychain "$SIGNING_KEYCHAIN" \
+    --timestamp=none \
+    "$APP_DIR"
+fi
+
+rm -f "$DIST_DIR/$APP_NAME.zip"
 (
   cd "$DIST_DIR"
   env COPYFILE_DISABLE=1 zip -qry "$APP_NAME.zip" "$APP_NAME.app"
