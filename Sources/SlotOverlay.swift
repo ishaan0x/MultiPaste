@@ -10,7 +10,6 @@ struct SlotOverlayItem {
 final class SlotOverlayController: NSWindowController {
     private let items: [SlotOverlayItem]
     private let stackView = NSStackView()
-    private let separatorColor = NSColor(calibratedWhite: 0.82, alpha: 1)
     private let rowHeight: CGFloat = 46
     private var rowViews: [SlotOverlayRowView] = []
     private var selectionIndex: Int? {
@@ -99,14 +98,7 @@ final class SlotOverlayController: NSWindowController {
             return
         }
 
-        let backgroundView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        backgroundView.wantsLayer = true
-        backgroundView.layer?.backgroundColor = NSColor(
-            calibratedWhite: 0.93,
-            alpha: 0.96
-        ).cgColor
-        backgroundView.layer?.cornerRadius = 12
-        backgroundView.layer?.masksToBounds = true
+        let backgroundView = SlotOverlayBackgroundView(frame: NSRect(x: 0, y: 0, width: width, height: height))
 
         stackView.orientation = .vertical
         stackView.spacing = 2
@@ -129,9 +121,7 @@ final class SlotOverlayController: NSWindowController {
             rowView.trailingAnchor.constraint(equalTo: stackView.trailingAnchor).isActive = true
 
             if index < items.count - 1 {
-                let separator = NSView()
-                separator.wantsLayer = true
-                separator.layer?.backgroundColor = separatorColor.cgColor
+                let separator = SlotOverlaySeparatorView()
                 separator.translatesAutoresizingMaskIntoConstraints = false
                 stackView.addArrangedSubview(separator)
                 separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
@@ -188,6 +178,80 @@ final class SlotOverlayController: NSWindowController {
         originY = max(originY, visibleFrame.minY + 8)
 
         return NSRect(x: originX, y: originY, width: width, height: height)
+    }
+}
+
+@MainActor
+final class SlotOverlayBackgroundView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        layer?.masksToBounds = true
+        updateColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
+    private func updateColors() {
+        layer?.backgroundColor = Self.backgroundColor(for: effectiveAppearance).cgColor
+        layer?.borderWidth = 1
+        layer?.borderColor = Self.borderColor(for: effectiveAppearance).cgColor
+    }
+
+    private static func backgroundColor(for appearance: NSAppearance) -> NSColor {
+        if appearance.isDarkMode {
+            return NSColor(calibratedWhite: 0.14, alpha: 0.97)
+        }
+
+        return NSColor(calibratedWhite: 0.93, alpha: 0.96)
+    }
+
+    private static func borderColor(for appearance: NSAppearance) -> NSColor {
+        if appearance.isDarkMode {
+            return NSColor(calibratedWhite: 0.26, alpha: 1)
+        }
+
+        return NSColor(calibratedWhite: 0.80, alpha: 1)
+    }
+}
+
+@MainActor
+final class SlotOverlaySeparatorView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        updateColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
+    private func updateColors() {
+        layer?.backgroundColor = Self.separatorColor(for: effectiveAppearance).cgColor
+    }
+
+    private static func separatorColor(for appearance: NSAppearance) -> NSColor {
+        if appearance.isDarkMode {
+            return NSColor(calibratedWhite: 0.28, alpha: 1)
+        }
+
+        return NSColor(calibratedWhite: 0.82, alpha: 1)
     }
 }
 
@@ -266,12 +330,25 @@ final class SlotOverlayRowView: NSView {
         }
 
         let path = NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6)
-        NSColor(calibratedWhite: 0.84, alpha: 0.95).setFill()
+        Self.highlightColor(for: effectiveAppearance).setFill()
         path.fill()
     }
 
     override var isFlipped: Bool {
         false
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    private static func highlightColor(for appearance: NSAppearance) -> NSColor {
+        if appearance.isDarkMode {
+            return NSColor(calibratedWhite: 0.22, alpha: 1)
+        }
+
+        return NSColor(calibratedWhite: 0.84, alpha: 0.95)
     }
 }
 
@@ -280,5 +357,11 @@ private extension SlotOverlayController {
         for (index, rowView) in rowViews.enumerated() {
             rowView.isHighlighted = index == selectionIndex
         }
+    }
+}
+
+private extension NSAppearance {
+    var isDarkMode: Bool {
+        bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 }
