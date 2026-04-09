@@ -65,6 +65,123 @@ private struct SlotEntry {
     let updatedAt: Date
 }
 
+private struct ScreenshotPreferences {
+    let directoryURL: URL
+    let filePrefix: String
+    let fileExtension: String
+}
+
+private final class ScreenshotFolderMonitor {
+    private let preferences: ScreenshotPreferences
+    private let queue = DispatchQueue(label: "com.ishaan.multipaste.screenshot-monitor")
+    private var directoryFileDescriptor: CInt = -1
+    private var source: DispatchSourceFileSystemObject?
+    private var pendingScan: DispatchWorkItem?
+    private var knownFiles = Set<String>()
+
+    var onNewScreenshot: (@Sendable (URL) -> Void)?
+
+    init?(preferences: ScreenshotPreferences) {
+        guard FileManager.default.fileExists(atPath: preferences.directoryURL.path) else {
+            return nil
+        }
+
+        self.preferences = preferences
+        knownFiles = Self.matchingFiles(for: preferences)
+    }
+
+    deinit {
+        pendingScan?.cancel()
+        source?.cancel()
+
+        if directoryFileDescriptor >= 0 {
+            close(directoryFileDescriptor)
+        }
+    }
+
+    func start() {
+        guard source == nil else {
+            return
+        }
+
+        directoryFileDescriptor = open(preferences.directoryURL.path, O_EVTONLY)
+        guard directoryFileDescriptor >= 0 else {
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: directoryFileDescriptor,
+            eventMask: [.write, .rename, .extend],
+            queue: queue
+        )
+
+        source.setEventHandler { [weak self] in
+            self?.scheduleScan()
+        }
+
+        self.source = source
+        source.resume()
+    }
+
+    private func scheduleScan() {
+        pendingScan?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.scanDirectory()
+        }
+
+        pendingScan = workItem
+        queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+
+    private func scanDirectory() {
+        let currentFiles = Self.matchingFiles(for: preferences)
+        let newFiles = currentFiles.subtracting(knownFiles).sorted()
+        knownFiles = currentFiles
+
+        guard !newFiles.isEmpty else {
+            return
+        }
+
+        for filePath in newFiles {
+            let fileURL = URL(fileURLWithPath: filePath)
+            onNewScreenshot?(fileURL)
+        }
+    }
+
+    private static func matchingFiles(for preferences: ScreenshotPreferences) -> Set<String> {
+        guard let fileURLs = try? FileManager.default.contentsOfDirectory(
+            at: preferences.directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        let normalizedExtension = preferences.fileExtension.lowercased()
+
+        return Set(fileURLs.compactMap { fileURL in
+            guard
+                let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                values.isRegularFile == true
+            else {
+                return nil
+            }
+
+            let fileName = fileURL.lastPathComponent
+            guard fileName.hasPrefix(preferences.filePrefix) else {
+                return nil
+            }
+
+            guard fileURL.pathExtension.lowercased() == normalizedExtension else {
+                return nil
+            }
+
+            return fileURL.path
+        })
+    }
+}
+
 private final class HotKeyRegistration {
     let identifier: UInt32
     let ref: EventHotKeyRef
@@ -99,6 +216,7 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
     private let transformMenuIdentifier: UInt32 = 3_000
     private let overlayNextIdentifier: UInt32 = 3_100
     private let overlayPreviousIdentifier: UInt32 = 3_101
+    private let clearAllIdentifier: UInt32 = 3_102
     private let signature: OSType = 0x4D505354
 
     private var slots: [SlotEntry?] = Array(repeating: nil, count: 10)
@@ -111,6 +229,7 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
     private var activeSlotOverlay: SlotOverlayController?
     private var flagsMonitor: Any?
     private var registeredHotKeyIdentifiers = Set<UInt32>()
+    private var screenshotMonitor: ScreenshotFolderMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -118,6 +237,7 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         installHotKeyHandler()
         installModifierMonitor()
         registerHotKeys()
+        startScreenshotMonitoring()
         promptForAccessibilityIfNeeded()
         updateStatusTitle("MP")
     }
@@ -144,30 +264,41 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
 
         for index in 0..<slotCount {
             let title = "Slot \(displaySlotNumber(for: index)): Empty"
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: slotKeyEquivalent(for: index))
             item.tag = 10 + index
+            item.keyEquivalentModifierMask = [.control]
             menu.addItem(item)
         }
 
         menu.addItem(NSMenuItem.separator())
-        let transformHeader = NSMenuItem(title: "Text Transforms", action: nil, keyEquivalent: "")
-        transformHeader.isEnabled = false
-        menu.addItem(transformHeader)
+        let clearItem = NSMenuItem(title: "Clear All Slots", action: #selector(clearAllSlots), keyEquivalent: "\u{8}")
+        clearItem.keyEquivalentModifierMask = [.control, .shift]
+        clearItem.target = self
+        menu.addItem(clearItem)
 
-        let transformItem = NSMenuItem(title: "Picker: Ctrl+Space", action: nil, keyEquivalent: "")
-        transformItem.tag = 100
-        menu.addItem(transformItem)
+        for index in 0..<slotCount {
+            let item = NSMenuItem(
+                title: "Clear Slot \(displaySlotNumber(for: index))",
+                action: #selector(clearSlotFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.tag = 200 + index
+            item.isHidden = true
+            menu.addItem(item)
+        }
+
+        menu.addItem(NSMenuItem.separator())
+        let transformHeader = NSMenuItem(title: "Text Transforms", action: #selector(openTransformPickerFromMenu), keyEquivalent: " ")
+        transformHeader.keyEquivalentModifierMask = [.control]
+        transformHeader.target = self
+        menu.addItem(transformHeader)
 
         for (offset, transform) in TextTransform.allCases.enumerated() {
             let item = NSMenuItem(title: "  \(transform.menuTitle): \(transform.pickerShortcut.uppercased())", action: nil, keyEquivalent: "")
             item.tag = 110 + offset
             menu.addItem(item)
         }
-
-        menu.addItem(NSMenuItem.separator())
-        let clearItem = NSMenuItem(title: "Clear All Slots", action: #selector(clearAllSlots), keyEquivalent: "")
-        clearItem.target = self
-        menu.addItem(clearItem)
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
@@ -266,6 +397,14 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
                 modifiers: UInt32(controlKey | shiftKey)
             )
         )
+
+        registerHotKey(
+            definition: HotKeyDefinition(
+                identifier: clearAllIdentifier,
+                keyCode: UInt32(kVK_Delete),
+                modifiers: UInt32(controlKey | shiftKey)
+            )
+        )
     }
 
     private func registerHotKey(definition: HotKeyDefinition, attempt: Int = 0) {
@@ -324,6 +463,21 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
+    private func startScreenshotMonitoring() {
+        guard let preferences = screenshotPreferences() else {
+            return
+        }
+
+        let monitor = ScreenshotFolderMonitor(preferences: preferences)
+        monitor?.onNewScreenshot = { [weak self] fileURL in
+            Task { @MainActor [weak self] in
+                self?.captureScreenshot(at: fileURL)
+            }
+        }
+        monitor?.start()
+        screenshotMonitor = monitor
+    }
+
     func handleHotKey(identifier: UInt32) {
         guard enabled else {
             flashStatusTitle("Paused")
@@ -343,6 +497,8 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             selectNextOverlaySlot()
         case overlayPreviousIdentifier:
             selectPreviousOverlaySlot()
+        case clearAllIdentifier:
+            clearAllSlots()
         default:
             break
         }
@@ -373,6 +529,44 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             self.refreshSlotOverlayIfNeeded()
             self.flashStatusTitle("C\(self.displaySlotNumber(for: slotIndex))")
         }
+    }
+
+    private func captureScreenshot(at fileURL: URL, attempt: Int = 0) {
+        guard enabled else {
+            return
+        }
+
+        guard let slotIndex = nextAvailableSlotIndex() else {
+            flashStatusTitle("No open slot")
+            return
+        }
+
+        let pasteboardType = pasteboardType(forScreenshotURL: fileURL)
+        guard let data = try? Data(contentsOf: fileURL) else {
+            guard attempt < 4 else {
+                flashStatusTitle("Shot failed")
+                return
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { [weak self] in
+                self?.captureScreenshot(at: fileURL, attempt: attempt + 1)
+            }
+            return
+        }
+
+        guard let snapshot = ClipboardSnapshot.imageFile(data: data, type: pasteboardType) else {
+            flashStatusTitle("Shot failed")
+            return
+        }
+
+        slots[slotIndex] = SlotEntry(
+            snapshot: snapshot,
+            preview: "[Screenshot]",
+            updatedAt: Date()
+        )
+        refreshSlotTitles()
+        refreshSlotOverlayIfNeeded()
+        flashStatusTitle("S\(displaySlotNumber(for: slotIndex))")
     }
 
     private func paste(from slotIndex: Int) {
@@ -608,6 +802,7 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         let fileURLType = NSPasteboard.PasteboardType.fileURL.rawValue
         let tiffType = NSPasteboard.PasteboardType.tiff.rawValue
         let pngType = NSPasteboard.PasteboardType.png.rawValue
+        let pdfType = NSPasteboard.PasteboardType.pdf.rawValue
 
         for item in snapshot.items {
             if let data = item.dataByType[stringType], let text = String(data: data, encoding: .utf8) {
@@ -627,7 +822,7 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
                 return "[Files]"
             }
 
-            if item.dataByType[tiffType] != nil || item.dataByType[pngType] != nil {
+            if item.dataByType[tiffType] != nil || item.dataByType[pngType] != nil || item.dataByType[pdfType] != nil {
                 return "[Image]"
             }
         }
@@ -786,9 +981,76 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
 
             if let slot = slots[index] {
                 item.title = "Slot \(displaySlotNumber(for: index)): \(slot.preview)"
+                item.action = #selector(pasteSlotFromMenu(_:))
+                item.target = self
+                item.isEnabled = true
+                item.keyEquivalentModifierMask = [.control, .shift]
             } else {
                 item.title = "Slot \(displaySlotNumber(for: index)): Empty"
+                item.action = nil
+                item.target = nil
+                item.isEnabled = false
+                item.keyEquivalentModifierMask = [.control]
             }
+        }
+
+        for index in 0..<slotCount {
+            guard let item = menu.item(withTag: 200 + index) else {
+                continue
+            }
+
+            item.title = "Clear Slot \(displaySlotNumber(for: index))"
+            item.isHidden = slots[index] == nil
+        }
+    }
+
+    private func nextAvailableSlotIndex() -> Int? {
+        slots.firstIndex(where: { $0 == nil })
+    }
+
+    private func slotKeyEquivalent(for index: Int) -> String {
+        "\(displaySlotNumber(for: index))"
+    }
+
+    private func clearSlot(_ index: Int) {
+        guard slots.indices.contains(index), slots[index] != nil else {
+            return
+        }
+
+        slots[index] = nil
+        refreshSlotTitles()
+        refreshSlotOverlayIfNeeded()
+        flashStatusTitle("X\(displaySlotNumber(for: index))")
+    }
+
+    private func screenshotPreferences() -> ScreenshotPreferences? {
+        let defaults = UserDefaults.standard.persistentDomain(forName: "com.apple.screencapture") ?? [:]
+        let directoryPath = (defaults["location"] as? String).map { ($0 as NSString).expandingTildeInPath }
+            ?? NSSearchPathForDirectoriesInDomains(.desktopDirectory, .userDomainMask, true).first
+        let filePrefix = (defaults["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Screenshot"
+        let fileExtension = (defaults["type"] as? String)?.lowercased() ?? "png"
+
+        guard let directoryPath else {
+            return nil
+        }
+
+        return ScreenshotPreferences(
+            directoryURL: URL(fileURLWithPath: directoryPath, isDirectory: true),
+            filePrefix: filePrefix,
+            fileExtension: fileExtension
+        )
+    }
+
+    private func pasteboardType(forScreenshotURL fileURL: URL) -> NSPasteboard.PasteboardType {
+        switch fileURL.pathExtension.lowercased() {
+        case "jpg", "jpeg":
+            return NSPasteboard.PasteboardType(rawValue: "public.jpeg")
+        case "tif", "tiff":
+            return .tiff
+        case "pdf":
+            return .pdf
+        default:
+            return .png
         }
     }
 
@@ -805,11 +1067,32 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         flashStatusTitle("Cleared")
     }
 
+    @objc private func clearSlotFromMenu(_ sender: NSMenuItem) {
+        let slotIndex = sender.tag - 200
+        clearSlot(slotIndex)
+    }
+
+    @objc private func pasteSlotFromMenu(_ sender: NSMenuItem) {
+        let slotIndex = sender.tag - 10
+        paste(from: slotIndex)
+    }
+
+    @objc private func openTransformPickerFromMenu() {
+        presentTransformPicker()
+    }
+
     @objc private func quitApp() {
         NSApp.terminate(nil)
     }
 
     static let shared = MultiPasteController()
+}
+
+private extension ClipboardSnapshot {
+    static func imageFile(data: Data, type: NSPasteboard.PasteboardType) -> ClipboardSnapshot? {
+        let item = ClipboardSnapshotItem(dataByType: [type.rawValue: data])
+        return ClipboardSnapshot(items: [item])
+    }
 }
 
 @main

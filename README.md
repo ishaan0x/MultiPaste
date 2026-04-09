@@ -14,6 +14,8 @@ MultiPaste is a lightweight macOS menu bar app for ten independent clipboard slo
 
 While you hold `Control` + `Shift`, MultiPaste shows a temporary overlay with the currently filled slots, a short preview of each slot, and when it was last updated.
 
+When you take a macOS screenshot with `Command` + `Shift` + `4`, MultiPaste watches your configured screenshot folder and stores that new screenshot in the next open slot automatically. If all ten slots are full, it leaves the screenshot alone.
+
 Inside the casing picker:
 
 - `Up` / `Down`: move between options
@@ -30,6 +32,8 @@ When you trigger a copy hotkey, the app simulates `Command-C`, waits briefly for
 When you trigger a paste hotkey, the app restores that slot to the system clipboard and simulates `Command-V`. While `Control` + `Shift` is held, you also get a temporary overlay showing only the filled slots and their recent contents.
 
 When you trigger the casing picker, the app copies the current selection, lets you choose a casing transform from a small popup, then pastes the transformed text back, reselects that transformed text, and restores your previous clipboard contents. `Normal` uses sentence-case heuristics, and SpongeBob casing uses a deterministic seeded pattern with about 42% uppercase letters on average.
+
+The menu bar menu also lets you clear any individual filled slot or clear all slots at once.
 
 ## Permissions
 
