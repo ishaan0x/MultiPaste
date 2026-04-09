@@ -63,6 +63,7 @@ private struct SlotEntry {
     let snapshot: ClipboardSnapshot
     let preview: String
     let updatedAt: Date
+    let screenshotFileURL: URL?
 }
 
 private struct ScreenshotPreferences {
@@ -523,7 +524,8 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             self.slots[slotIndex] = SlotEntry(
                 snapshot: snapshot,
                 preview: self.previewText(for: snapshot),
-                updatedAt: Date()
+                updatedAt: Date(),
+                screenshotFileURL: nil
             )
             self.refreshSlotTitles()
             self.refreshSlotOverlayIfNeeded()
@@ -562,7 +564,8 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         slots[slotIndex] = SlotEntry(
             snapshot: snapshot,
             preview: "[Screenshot]",
-            updatedAt: Date()
+            updatedAt: Date(),
+            screenshotFileURL: fileURL
         )
         refreshSlotTitles()
         refreshSlotOverlayIfNeeded()
@@ -1013,14 +1016,27 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
     }
 
     private func clearSlot(_ index: Int) {
-        guard slots.indices.contains(index), slots[index] != nil else {
+        guard slots.indices.contains(index), let slot = slots[index] else {
             return
         }
 
+        deleteScreenshotFileIfNeeded(for: slot)
         slots[index] = nil
         refreshSlotTitles()
         refreshSlotOverlayIfNeeded()
         flashStatusTitle("X\(displaySlotNumber(for: index))")
+    }
+
+    private func deleteScreenshotFileIfNeeded(for slot: SlotEntry) {
+        guard let fileURL = slot.screenshotFileURL else {
+            return
+        }
+
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        try? FileManager.default.removeItem(at: fileURL)
     }
 
     private func screenshotPreferences() -> ScreenshotPreferences? {
@@ -1061,6 +1077,10 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
     }
 
     @objc private func clearAllSlots() {
+        for slot in slots.compactMap({ $0 }) {
+            deleteScreenshotFileIfNeeded(for: slot)
+        }
+
         slots = Array(repeating: nil, count: slotCount)
         refreshSlotTitles()
         hideSlotOverlay()
