@@ -218,6 +218,7 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
     private let overlayNextIdentifier: UInt32 = 3_100
     private let overlayPreviousIdentifier: UInt32 = 3_101
     private let clearAllIdentifier: UInt32 = 3_102
+    private let copyAddressIdentifier: UInt32 = 3_103
     private let signature: OSType = 0x4D505354
 
     private var slots: [SlotEntry?] = Array(repeating: nil, count: 10)
@@ -300,6 +301,12 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             item.tag = 110 + offset
             menu.addItem(item)
         }
+
+        menu.addItem(NSMenuItem.separator())
+        let copyAddressItem = NSMenuItem(title: "Copy Browser Address to Next Slot", action: #selector(copyBrowserAddressFromMenu), keyEquivalent: "l")
+        copyAddressItem.keyEquivalentModifierMask = [.control]
+        copyAddressItem.target = self
+        menu.addItem(copyAddressItem)
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
@@ -406,6 +413,14 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
                 modifiers: UInt32(controlKey | shiftKey)
             )
         )
+
+        registerHotKey(
+            definition: HotKeyDefinition(
+                identifier: copyAddressIdentifier,
+                keyCode: UInt32(kVK_ANSI_L),
+                modifiers: UInt32(controlKey)
+            )
+        )
     }
 
     private func registerHotKey(definition: HotKeyDefinition, attempt: Int = 0) {
@@ -500,6 +515,8 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
             selectPreviousOverlaySlot()
         case clearAllIdentifier:
             clearAllSlots()
+        case copyAddressIdentifier:
+            captureBrowserAddressIntoNextSlot()
         default:
             break
         }
@@ -570,6 +587,67 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         refreshSlotTitles()
         refreshSlotOverlayIfNeeded()
         flashStatusTitle("S\(displaySlotNumber(for: slotIndex))")
+    }
+
+    private func captureBrowserAddressIntoNextSlot() {
+        guard ensureAccessibilityPermissions() else {
+            flashStatusTitle("Grant Access")
+            return
+        }
+
+        guard let slotIndex = nextAvailableSlotIndex() else {
+            flashStatusTitle("No open slot")
+            return
+        }
+
+        postCommandKeystroke(keyCode: CGKeyCode(kVK_ANSI_L))
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak self] in
+            guard let self else { return }
+
+            self.postCommandKeystroke(keyCode: CGKeyCode(kVK_ANSI_C))
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+                guard let self else { return }
+
+                guard let address = self.browserAddressFromPasteboard() else {
+                    self.flashStatusTitle("Copy failed")
+                    return
+                }
+
+                let snapshot = ClipboardSnapshot.plainText(address)
+                self.slots[slotIndex] = SlotEntry(
+                    snapshot: snapshot,
+                    preview: self.compactPreview(address),
+                    updatedAt: Date(),
+                    screenshotFileURL: nil
+                )
+                self.refreshSlotTitles()
+                self.refreshSlotOverlayIfNeeded()
+                self.flashStatusTitle("L\(self.displaySlotNumber(for: slotIndex))")
+            }
+        }
+    }
+
+    private func browserAddressFromPasteboard() -> String? {
+        let pasteboard = NSPasteboard.general
+
+        if let text = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !text.isEmpty {
+            return text
+        }
+
+        if let urlString = pasteboard.string(forType: .URL)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !urlString.isEmpty {
+            return urlString
+        }
+
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+           let url = urls.first {
+            return url.absoluteString
+        }
+
+        return nil
     }
 
     private func paste(from slotIndex: Int) {
@@ -1101,6 +1179,10 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
         presentTransformPicker()
     }
 
+    @objc private func copyBrowserAddressFromMenu() {
+        captureBrowserAddressIntoNextSlot()
+    }
+
     @objc private func quitApp() {
         NSApp.terminate(nil)
     }
@@ -1109,6 +1191,12 @@ private final class MultiPasteController: NSObject, NSApplicationDelegate {
 }
 
 private extension ClipboardSnapshot {
+    static func plainText(_ text: String) -> ClipboardSnapshot {
+        let data = Data(text.utf8)
+        let item = ClipboardSnapshotItem(dataByType: [NSPasteboard.PasteboardType.string.rawValue: data])
+        return ClipboardSnapshot(items: [item])
+    }
+
     static func imageFile(data: Data, type: NSPasteboard.PasteboardType) -> ClipboardSnapshot? {
         let item = ClipboardSnapshotItem(dataByType: [type.rawValue: data])
         return ClipboardSnapshot(items: [item])

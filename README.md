@@ -11,10 +11,13 @@ MultiPaste is a lightweight macOS menu bar app for ten independent clipboard slo
 - `Control` + `1` through `0`: copy current selection into slot `1` through `10`
 - `Control` + `Shift` + `1` through `0`: paste from slot `1` through `10`
 - `Control` + `Space`: open the casing picker
+- `Control` + `L`: select the current browser address, copy it, and store it in the next open slot
 
 While you hold `Control` + `Shift`, MultiPaste shows a temporary overlay with the currently filled slots, a short preview of each slot, and when it was last updated.
 
 When you take a macOS screenshot with `Command` + `Shift` + `4`, MultiPaste watches your configured screenshot folder and stores that new screenshot in the next open slot automatically. If all ten slots are full, it leaves the screenshot alone.
+
+When you press `Control` + `L`, MultiPaste simulates `Command` + `L` followed by `Command` + `C`, then stores the copied browser address in the next open slot. If all ten slots are full, it does nothing beyond showing `No open slot`.
 
 Inside the casing picker:
 
