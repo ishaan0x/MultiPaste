@@ -7,6 +7,9 @@ MODULE_CACHE="$ROOT/.build/ModuleCache"
 DIST_DIR="$ROOT/dist"
 APP_NAME="MultiPaste"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
+LAUNCHER_NAME="Open MultiPaste.command"
+LAUNCHER_PATH="$DIST_DIR/$LAUNCHER_NAME"
+PACKAGE_ROOT="$DIST_DIR/package-root"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -82,9 +85,39 @@ fi
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
 xattr -cr "$APP_DIR"
 
+cat > "$LAUNCHER_PATH" <<'EOF'
+#!/bin/zsh
+set -euo pipefail
+
+APP_NAME="MultiPaste.app"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_PATH="$SCRIPT_DIR/$APP_NAME"
+APPLICATIONS_PATH="/Applications/$APP_NAME"
+
+if [[ -d "$APPLICATIONS_PATH" ]]; then
+  APP_PATH="$APPLICATIONS_PATH"
+elif [[ ! -d "$APP_PATH" ]]; then
+  echo "Could not find $APP_NAME next to this launcher or in /Applications."
+  echo "Move this launcher next to $APP_NAME, or drag $APP_NAME into Applications and run this again."
+  read -r "?Press Return to close."
+  exit 1
+fi
+
+xattr -dr com.apple.quarantine "$APP_PATH" >/dev/null 2>&1 || true
+open "$APP_PATH"
+EOF
+chmod +x "$LAUNCHER_PATH"
+xattr -c "$LAUNCHER_PATH"
+
 rm -f "$DIST_DIR/$APP_NAME.zip"
-ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$DIST_DIR/$APP_NAME.zip"
+rm -rf "$PACKAGE_ROOT"
+mkdir -p "$PACKAGE_ROOT"
+ditto "$APP_DIR" "$PACKAGE_ROOT/$APP_NAME.app"
+ditto "$LAUNCHER_PATH" "$PACKAGE_ROOT/$LAUNCHER_NAME"
+ditto -c -k --sequesterRsrc "$PACKAGE_ROOT" "$DIST_DIR/$APP_NAME.zip"
+rm -rf "$PACKAGE_ROOT"
 
 echo "Created:"
 echo "  $APP_DIR"
+echo "  $LAUNCHER_PATH"
 echo "  $DIST_DIR/$APP_NAME.zip"

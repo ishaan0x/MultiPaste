@@ -54,9 +54,8 @@ Download [MultiPaste.zip](https://github.com/ishaan0x/MultiPaste/releases/latest
 
 1. Unzip `MultiPaste.zip`.
 2. Drag `MultiPaste.app` into `Applications`.
-3. Open `Applications`, then right-click `MultiPaste.app` and choose `Open`.
-4. Click through the macOS warning once.
-5. Grant Accessibility access when macOS prompts, or enable `MultiPaste` manually in `System Settings` > `Privacy & Security` > `Accessibility`.
+3. Double-click `Open MultiPaste.command` from the unzipped folder.
+4. Grant Accessibility access when macOS prompts, or enable `MultiPaste` manually in `System Settings` > `Privacy & Security` > `Accessibility`.
 
 After that, MultiPaste should run as a menu bar app with an `MP` label.
 
@@ -79,6 +78,7 @@ To build a `.app` bundle and zip it for a GitHub release:
 This creates:
 
 - `dist/MultiPaste.app`
+- `dist/Open MultiPaste.command`
 - `dist/MultiPaste.zip`
 
 The package script always signs the app bundle before zipping it. By default it
@@ -105,4 +105,7 @@ This repo includes a GitHub Actions workflow at `.github/workflows/release.yml`.
 - Push a tag like `v0.2.0` to upload `MultiPaste.zip` to that release.
 - Or run the workflow manually from the Actions tab and enter a version.
 
-The app is not notarized, so macOS may show a warning on first open. That is expected for this distribution model.
+The app is not notarized. The release ZIP includes `Open MultiPaste.command`,
+which removes the download quarantine attribute from `MultiPaste.app` and opens
+it. A Developer ID certificate plus Apple notarization is required to avoid that
+first-launch workaround entirely.
