@@ -70,7 +70,7 @@ To build and run the local development version:
 
 ## Package a Downloadable App
 
-To build an unsigned `.app` bundle and zip it for a GitHub release:
+To build a `.app` bundle and zip it for a GitHub release:
 
 ```bash
 ./scripts/package_app.sh 0.2.0
@@ -80,6 +80,12 @@ This creates:
 
 - `dist/MultiPaste.app`
 - `dist/MultiPaste.zip`
+
+The package script always signs the app bundle before zipping it. By default it
+uses an ad-hoc signature so the archive has a valid bundle signature on every
+machine. For Developer ID signing, set `MULTIPASTE_SIGNING_IDENTITY` before
+running the script; set `MULTIPASTE_SIGNING_KEYCHAIN` too if the identity lives
+outside the default keychain search path.
 
 ## Update Installed App
 
@@ -99,4 +105,4 @@ This repo includes a GitHub Actions workflow at `.github/workflows/release.yml`.
 - Push a tag like `v0.2.0` to upload `MultiPaste.zip` to that release.
 - Or run the workflow manually from the Actions tab and enter a version.
 
-The app is unsigned and not notarized, so macOS will show a warning on first open. That is expected for this distribution model.
+The app is not notarized, so macOS may show a warning on first open. That is expected for this distribution model.
