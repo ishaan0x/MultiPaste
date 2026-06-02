@@ -1,4 +1,4 @@
-[Download MultiPaste for Mac](https://github.com/ishaan0x/MultiPaste/releases/latest/download/MultiPaste.zip) includes `MultiPaste.app` and `Install MultiPaste.command`.
+[Download MultiPaste for Mac](https://github.com/ishaan0x/MultiPaste/releases/download/v0.2.1/MultiPaste.zip) includes `MultiPaste.app` and `Install MultiPaste.command`.
 
 # MultiPaste
 
@@ -48,7 +48,7 @@ On first launch, macOS should prompt you to allow access for the built binary or
 
 ### Download the app
 
-Download [MultiPaste.zip](https://github.com/ishaan0x/MultiPaste/releases/latest/download/MultiPaste.zip). The ZIP includes `MultiPaste.app` and `Install MultiPaste.command`.
+Download [MultiPaste.zip](https://github.com/ishaan0x/MultiPaste/releases/download/v0.2.1/MultiPaste.zip). The ZIP includes `MultiPaste.app` and `Install MultiPaste.command`.
 
 ### First launch
 
