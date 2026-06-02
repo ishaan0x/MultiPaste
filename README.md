@@ -1,4 +1,4 @@
-[Download MultiPaste for Mac](https://github.com/ishaan0x/MultiPaste/releases/latest/download/MultiPaste.zip) includes `MultiPaste.app` and `Open MultiPaste.command`.
+[Download MultiPaste for Mac](https://github.com/ishaan0x/MultiPaste/releases/latest/download/MultiPaste.zip) includes `MultiPaste.app` and `Install MultiPaste.command`.
 
 # MultiPaste
 
@@ -48,14 +48,13 @@ On first launch, macOS should prompt you to allow access for the built binary or
 
 ### Download the app
 
-Download [MultiPaste.zip](https://github.com/ishaan0x/MultiPaste/releases/latest/download/MultiPaste.zip). The ZIP includes `MultiPaste.app` and `Open MultiPaste.command`.
+Download [MultiPaste.zip](https://github.com/ishaan0x/MultiPaste/releases/latest/download/MultiPaste.zip). The ZIP includes `MultiPaste.app` and `Install MultiPaste.command`.
 
 ### First launch
 
 1. Unzip `MultiPaste.zip`.
-2. Drag `MultiPaste.app` into `Applications`.
-3. Double-click `Open MultiPaste.command` from the unzipped folder.
-4. Grant Accessibility access when macOS prompts, or enable `MultiPaste` manually in `System Settings` > `Privacy & Security` > `Accessibility`.
+2. Double-click `Install MultiPaste.command` from the unzipped folder.
+3. Grant Accessibility access when macOS prompts, or enable `MultiPaste` manually in `System Settings` > `Privacy & Security` > `Accessibility`.
 
 After that, MultiPaste should run as a menu bar app with an `MP` label.
 
@@ -78,7 +77,7 @@ To build a `.app` bundle and zip it for a GitHub release:
 This creates:
 
 - `dist/MultiPaste.app`
-- `dist/Open MultiPaste.command`
+- `dist/Install MultiPaste.command`
 - `dist/MultiPaste.zip`
 
 The package script always signs the app bundle before zipping it. By default it
@@ -105,7 +104,8 @@ This repo includes a GitHub Actions workflow at `.github/workflows/release.yml`.
 - Push a tag like `v0.2.0` to upload `MultiPaste.zip` to that release.
 - Or run the workflow manually from the Actions tab and enter a version.
 
-The app is not notarized. The release ZIP includes `Open MultiPaste.command`,
-which removes the download quarantine attribute from `MultiPaste.app` and opens
+The app is not notarized. The release ZIP includes `Install MultiPaste.command`,
+which copies `MultiPaste.app` into `/Applications`, removes the download
+quarantine attribute from the installed app, verifies its signature, and opens
 it. A Developer ID certificate plus Apple notarization is required to avoid that
 first-launch workaround entirely.

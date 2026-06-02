@@ -7,7 +7,7 @@ MODULE_CACHE="$ROOT/.build/ModuleCache"
 DIST_DIR="$ROOT/dist"
 APP_NAME="MultiPaste"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
-LAUNCHER_NAME="Open MultiPaste.command"
+LAUNCHER_NAME="Install MultiPaste.command"
 LAUNCHER_PATH="$DIST_DIR/$LAUNCHER_NAME"
 PACKAGE_ROOT="$DIST_DIR/package-root"
 CONTENTS_DIR="$APP_DIR/Contents"
@@ -91,20 +91,23 @@ set -euo pipefail
 
 APP_NAME="MultiPaste.app"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_PATH="$SCRIPT_DIR/$APP_NAME"
-APPLICATIONS_PATH="/Applications/$APP_NAME"
+SOURCE_APP="$SCRIPT_DIR/$APP_NAME"
+TARGET_APP="/Applications/$APP_NAME"
 
-if [[ -d "$APPLICATIONS_PATH" ]]; then
-  APP_PATH="$APPLICATIONS_PATH"
-elif [[ ! -d "$APP_PATH" ]]; then
-  echo "Could not find $APP_NAME next to this launcher or in /Applications."
-  echo "Move this launcher next to $APP_NAME, or drag $APP_NAME into Applications and run this again."
+if [[ -d "$SOURCE_APP" ]]; then
+  mkdir -p /Applications
+  rm -rf "$TARGET_APP"
+  ditto "$SOURCE_APP" "$TARGET_APP"
+elif [[ ! -d "$TARGET_APP" ]]; then
+  echo "Could not find $APP_NAME next to this installer or in /Applications."
+  echo "Move this installer next to $APP_NAME and run it again."
   read -r "?Press Return to close."
   exit 1
 fi
 
-xattr -dr com.apple.quarantine "$APP_PATH" >/dev/null 2>&1 || true
-open "$APP_PATH"
+xattr -dr com.apple.quarantine "$TARGET_APP" >/dev/null 2>&1 || true
+codesign --verify --deep --strict "$TARGET_APP"
+open "$TARGET_APP"
 EOF
 chmod +x "$LAUNCHER_PATH"
 xattr -c "$LAUNCHER_PATH"
